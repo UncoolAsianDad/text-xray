@@ -259,7 +259,8 @@ document.querySelectorAll(".chip").forEach((b) => {
 });
 input.addEventListener("input", () => { if (input.value.trim()) render(input.value); });
 
-render(SAMPLES.homoglyph);
+input.value = SAMPLES.homoglyph;
+render(input.value);
 </script>
 </body>
 </html>

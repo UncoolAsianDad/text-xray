@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Text X-Ray — find hidden and fake characters</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Text X-Ray</h1>
+  <p class="sub">Paste any message. It shows you what the human sees, what the computer actually stores, and which characters are fake.</p>
+</header>
+
+<section class="input-panel">
+  <label for="input">Paste text (or an SMS payload)</label>
+  <textarea id="input" rows="4" placeholder="Paste here…"></textarea>
+
+  <div class="samples">
+    <span class="samples-label">Samples:</span>
+    <button class="chip" data-sample="homoglyph">Homoglyph vowels</button>
+    <button class="chip" data-sample="zerowidth">Zero-width spaces</button>
+    <button class="chip" data-sample="bidi">RTL override</button>
+    <button class="chip" data-sample="clean">Clean English</button>
+    <button class="chip" data-sample="legit">Legit non-ASCII (José Müller)</button>
+  </div>
+
+  <div class="actions">
+    <button id="analyze" class="primary">Analyze</button>
+    <button id="clear" class="ghost">Clear</button>
+  </div>
+</section>
+
+<section id="results" hidden>
+
+  <div class="verdict">
+    <div class="verdict-label" id="verdict">—</div>
+    <div class="score-wrap">
+      <div class="score-bar"><div class="score-fill" id="scoreFill"></div></div>
+      <div class="score-num"><span id="score">0</span>/100 manipulation score</div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="stTotal">0</b><span>characters</span></div>
+    <div class="stat"><b id="stVisible">0</b><span>visible</span></div>
+    <div class="stat"><b id="stAscii">0</b><span>ASCII</span></div>
+    <div class="stat warn"><b id="stNonAscii">0</b><span>non-ASCII</span></div>
+    <div class="stat warn"><b id="stInvisible">0</b><span>invisible</span></div>
+    <div class="stat warn"><b id="stHomoglyph">0</b><span>homoglyphs</span></div>
+    <div class="stat warn"><b id="stMixed">0</b><span>mixed-script words</span></div>
+    <div class="stat"><b id="stBytes">0</b><span>UTF-8 bytes</span></div>
+  </div>
+
+  <div class="grid">
+
+    <div class="card">
+      <h2>1. X-ray view</h2>
+      <p class="hint">Same text, but every hidden character is drawn as a visible marker.</p>
+      <div class="xray" id="xray"></div>
+      <div class="legend">
+        <span class="lg lg-invisible">invisible char</span>
+        <span class="lg lg-homoglyph">fake letter</span>
+        <span class="lg lg-combining">combining mark</span>
+        <span class="lg lg-ascii">normal ASCII</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. What it really says</h2>
+      <p class="hint">Normalized to plain ASCII. This is what a correct filter should compare against.</p>
+      <div class="clean" id="clean"></div>
+      <button class="ghost" id="copyClean">Copy cleaned text</button>
+    </div>
+
+    <div class="card">
+      <h2>3. Substitution regularity</h2>
+      <p class="hint">Humans make inconsistent typos. Scripts replace <em>every</em> instance of a letter. A 100% rate is a machine signature.</p>
+      <table id="regularity">
+        <thead><tr><th>Letter</th><th>Real</th><th>Replaced</th><th>Rate</th><th>Used codepoints</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>4. SMS transport</h2>
+      <p class="hint">Metadata you can check at the gateway before you even read the content.</p>
+      <table id="sms">
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>5. Script census</h2>
+      <p class="hint">Real foreign-language text uses letters with no Latin twin. An attack payload is a Latin skeleton with look-alikes sprinkled in.</p>
+      <table id="scripts">
+        <thead><tr><th>Script</th><th>Count</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="mixed" id="mixedNote"></div>
+    </div>
+
+    <div class="card wide">
+      <h2>6. Character-by-character</h2>
+      <p class="hint">Every character, in order. <code>U+006F</code> and <code>U+043E</code> render identically but are different bytes.</p>
+      <table id="charTable">
+        <thead>
+          <tr><th>#</th><th>Char</th><th>Codepoint</th><th>Decimal</th><th>UTF-8 bytes</th><th>Type</th><th>Verdict</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <div class="card">
+    <h2>7. Payload generator (for testing your own service)</h2>
+    <p class="hint">Takes your plain text and produces the variants an attacker would send. Paste each into your service and see whether your filters catch it.</p>
+    <div class="gen">
+      <div class="gen-row"><span>Homoglyph</span><code id="genHomo"></code></div>
+      <div class="gen-row"><span>Zero-width</span><code id="genZero"></code></div>
+      <div class="gen-row"><span>Combining marks</span><code id="genComb"></code></div>
+      <div class="gen-row"><span>Fullwidth</span><code id="genFull"></code></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>8. Cheat sheet</h2>
+    <ul class="cheat">
+      <li><b>ASCII is only 0–127.</b> Anything above that is not an English letter, even if it looks like one.</li>
+      <li><b>NFKC normalization does not fix homoglyphs.</b> Cyrillic <code>о</code> is not a variant of Latin <code>o</code>; it is a different letter that happens to look the same. Use the Unicode Confusables table (UTR#39).</li>
+      <li><b>Zero-width characters are invisible.</b> U+200B, U+200C, U+200D, U+FEFF split words without showing up. <code>"time"</code> becomes <code>t\u200bi\u200bm\u200be</code> and your regex fails.</li>
+      <li><b>Check both the raw and the normalized string.</b> Send the normalized version to the model, keep the raw version for audit.</li>
+      <li><b>Watch the transport layer.</b> SMS is GSM-7 by default. Any Cyrillic or zero-width character forces UCS-2, which halves the segment size. That is a signal you get for free.</li>
+      <li><b>Do not treat "non-ASCII" as guilty.</b> José, Müller, 東京, Arabic diacritics — all legitimate. Guilt comes from <em>mixed script + 100% regular substitution</em>.</li>
+    </ul>
+  </div>
+
+</section>
+
+<footer>
+  <p>Runs entirely in your browser. Nothing is sent anywhere. <code>xray.js</code> is standalone if you want to call it from Node.</p>
+</footer>
+
+<script src="xray.js"></script>
+<script>
+const SAMPLES = {
+  homoglyph: "Іs thіs stіll yоu? Cоuld І аsk fоr а lіttlе аdvіcе?",
+  zerowidth: "Do you have t​i​m​e for a q​u​i​c​k word?",
+  bidi: "Please approve this refund. ‮Do not approve this refund.",
+  clean: "Is this still you? Could I ask for a little advice?",
+  legit: "José Müller sent me the invoice for 東京 office, 500 €.",
+};
+
+const input = document.getElementById("input");
+const results = document.getElementById("results");
+
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function glyphFor(row) {
+  if (row.kind === "invisible") return "∅";
+  if (row.kind === "combining") return "◌";
+  return row.ch;
+}
+
+function render(text) {
+  const a = analyze(text);
+  results.hidden = false;
+
+  document.getElementById("verdict").textContent = a.verdict;
+  document.getElementById("verdict").className = "verdict-label v-" + a.verdict.toLowerCase().replace(/[^a-z]+/g, "-");
+  document.getElementById("score").textContent = a.score;
+  document.getElementById("scoreFill").style.width = a.score + "%";
+
+  document.getElementById("stTotal").textContent = a.counts.total;
+  document.getElementById("stVisible").textContent = a.counts.visible;
+  document.getElementById("stAscii").textContent = a.counts.ascii;
+  document.getElementById("stNonAscii").textContent = a.counts.nonascii;
+  document.getElementById("stInvisible").textContent = a.counts.invisible;
+  document.getElementById("stHomoglyph").textContent = a.counts.homoglyph;
+  document.getElementById("stMixed").textContent = a.mixedWords.length;
+  document.getElementById("stBytes").textContent = a.counts.bytes;
+
+  /* x-ray */
+  document.getElementById("xray").innerHTML = a.rows.map((r) => {
+    if (r.kind === "invisible") return `<span class="xr xr-invisible" title="${esc(r.note)} (${r.hex})">∅<em>${r.hex.slice(2)}</em></span>`;
+    if (r.kind === "homoglyph") return `<span class="xr xr-homoglyph" title="${esc(r.note)} (${r.hex})">${esc(r.ch)}<em>${r.hex.slice(2)}</em></span>`;
+    if (r.kind === "combining") return `<span class="xr xr-combining" title="${esc(r.note)} (${r.hex})">◌<em>${r.hex.slice(2)}</em></span>`;
+    if (r.kind === "nonascii") return `<span class="xr xr-nonascii" title="${esc(r.note)} (${r.hex})">${esc(r.ch)}</span>`;
+    if (r.ch === " ") return `<span class="xr xr-space">␣</span>`;
+    if (r.ch === "\n") return "<br>";
+    return `<span class="xr xr-ascii">${esc(r.ch)}</span>`;
+  }).join("");
+
+  /* cleaned */
+  document.getElementById("clean").textContent = a.cleaned;
+
+  /* regularity */
+  const regBody = document.getElementById("regularity").querySelector("tbody");
+  regBody.innerHTML = a.regularity.length
+    ? a.regularity.map((r) => `<tr>
+        <td>${r.letter}</td>
+        <td>${r.original}</td>
+        <td>${r.replaced}</td>
+        <td class="${r.rate >= 0.9 ? "bad" : ""}">${(r.rate * 100).toFixed(0)}%</td>
+        <td><code>${r.variants.join(", ")}</code></td>
+      </tr>`).join("")
+    : `<tr><td colspan="5" class="muted">No confusable substitutions found.</td></tr>`;
+
+  /* sms */
+  document.getElementById("sms").querySelector("tbody").innerHTML = `
+    <tr><td>Encoding</td><td>${esc(a.sms.encoding)}</td></tr>
+    <tr><td>Chars per segment</td><td>${a.sms.charsPerSegment}</td></tr>
+    <tr><td>Segments needed</td><td>${a.sms.segments}</td></tr>
+    <tr><td>Note</td><td>${esc(a.sms.note)}</td></tr>`;
+
+  /* script census */
+  const scriptRows = Object.entries(a.scripts).map(([s, n]) => `<tr><td>${esc(s)}</td><td>${n}</td></tr>`).join("");
+  document.getElementById("scripts").querySelector("tbody").innerHTML = scriptRows ||
+    `<tr><td colspan="2" class="muted">All characters are ASCII.</td></tr>`;
+  document.getElementById("mixedNote").innerHTML = a.mixedWords.length
+    ? `<b>${a.mixedWords.length} word(s) mix Latin and look-alike letters:</b> ${a.mixedWords.map(esc).join(", ")}`
+    : "No word mixes Latin letters with look-alike letters.";
+
+  /* char table */
+  document.getElementById("charTable").querySelector("tbody").innerHTML = a.rows.map((r) => `
+    <tr class="k-${r.kind}">
+      <td>${r.index}</td>
+      <td class="glyph">${r.kind === "invisible" ? "∅ (invisible)" : esc(r.ch)}</td>
+      <td><code>${r.hex}</code></td>
+      <td>${r.dec}</td>
+      <td><code>${r.bytes}</code></td>
+      <td>${r.kind}</td>
+      <td>${esc(r.note)}</td>
+    </tr>`).join("");
+
+  /* generator */
+  document.getElementById("genHomo").textContent = homoglyphVariant(text);
+  document.getElementById("genZero").textContent = zeroWidthVariant(text);
+  document.getElementById("genComb").textContent = combiningVariant(text);
+  document.getElementById("genFull").textContent = fullwidthVariant(text);
+}
+
+document.getElementById("analyze").addEventListener("click", () => render(input.value));
+document.getElementById("clear").addEventListener("click", () => {
+  input.value = "";
+  results.hidden = true;
+});
+document.getElementById("copyClean").addEventListener("click", (e) => {
+  navigator.clipboard.writeText(document.getElementById("clean").textContent)
+    .then(() => { e.target.textContent = "Copied ✓"; setTimeout(() => e.target.textContent = "Copy cleaned text", 1500); });
+});
+document.querySelectorAll(".chip").forEach((b) => {
+  b.addEventListener("click", () => { input.value = SAMPLES[b.dataset.sample]; render(input.value); });
+});
+input.addEventListener("input", () => { if (input.value.trim()) render(input.value); });
+
+render(SAMPLES.homoglyph);
+</script>
+</body>
+</html>

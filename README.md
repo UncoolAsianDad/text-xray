@@ -1,8 +1,10 @@
 # text-xray
 
-A dependency-free, offline webpage for inspecting SMS / chat payloads for
+Live demo: https://uncoolasiandad.github.io/text-xray/
+
+A dependency-free, offline webpage for inspecting SMS and chat payloads for
 hidden or fake characters: homoglyphs, zero-width characters, bidi controls,
-combining marks.
+and combining marks.
 
 Author: Brian Ho (brian@codeforart.com)
 
